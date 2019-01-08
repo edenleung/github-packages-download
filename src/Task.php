@@ -16,6 +16,7 @@ class Task
     public function start()
     {
         $worker = new Worker("text://0.0.0.0:2346");
+        $worker->count = 200;
         $worker->onWorkerStart = function () {
         };
         $worker->onMessage = function ($connection, $data) {
@@ -35,7 +36,7 @@ class Task
                 if (!file_exists($savePath)) {
                     echo "正在下载: {$path}\n";
                     $res = $this->http->request('GET', 'https://github.com' . $path);
-                    file_put_contents($dir . '/' . $file, $res->getBody());
+                    file_put_contents($dir . '/' . $file, $res->getBody(), LOCK_EX);
                     echo "下载{$file}完成\n";
                 } else {
                     echo "{$path} 文件已下载，终止下载\n";
