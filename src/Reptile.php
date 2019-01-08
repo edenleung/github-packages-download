@@ -54,29 +54,36 @@ class Reptile
                 $data = QueryList::html($res->getBody())->find('.pagination a')->htmls()->all();
                 $htmls = QueryList::html($res->getBody())->rules($rules)->range('')->queryData();
 
-                foreach ($htmls as $key => $item) {
-                    if (isset($item['version']) && isset($item['assets']) && !empty($item['assets'])) {
-                        $list = QueryList::html($item['assets'])->rules($rule)->queryData();
-                        $links = array_column($list, 'link');
-                        $item['links'] = $links;
-                        $task = new AsyncTcpConnection('text://127.0.0.1:2346');
-                        $task->onConnect = function($connection) use($item)
-                        {
-                            $connection->send(json_encode(['project' => $this->project, 'data' => $item]));
-                        };
-                        $task->connect();
-                    } else {
-                        unset($htmls[$key]);
+                if (!empty($htmls)) {
+                    foreach ($htmls as $key => $item) {
+                        if (isset($item['version']) && isset($item['assets']) && !empty($item['assets'])) {
+                            $list = QueryList::html($item['assets'])->rules($rule)->queryData();
+                            $links = array_column($list, 'link');
+                            $item['links'] = $links;
+                            $task = new AsyncTcpConnection('text://127.0.0.1:2346');
+                            $task->onConnect = function($connection) use($item)
+                            {
+                                $connection->send(json_encode(['project' => $this->project, 'data' => $item]));
+                            };
+                            $task->connect();
+                        } else {
+                            unset($htmls[$key]);
+                        }
                     }
-                }
-                $version = end($htmls)['version'];
-                $afterVersion = "?after={$version}";
-                echo "完成\n";
-                if (count($data) == 1 && $data[0] == 'Previous') {
-                    echo "工作完成了\n";
+                    $version = end($htmls)['version'];
+                    $afterVersion = "?after={$version}";
+                    echo "完成\n";
+                    if (count($data) == 1 && $data[0] == 'Previous') {
+                        echo "工作完成了\n";
+                        $stop = true;
+                    }
+                    sleep(1);
+                } else {
+                    echo "啥包都没有，结束了\n";
                     $stop = true;
                 }
-                sleep(1);
+
+                
             } while ($stop === false);
 
 
