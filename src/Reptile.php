@@ -77,7 +77,6 @@ class Reptile
                         echo "工作完成了\n";
                         $stop = true;
                     }
-                    sleep(1);
                 } else {
                     echo "啥包都没有，结束了\n";
                     $stop = true;
