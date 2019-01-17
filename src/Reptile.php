@@ -1,92 +1,77 @@
 <?php
 use Workerman\Worker;
 use GuzzleHttp\Client;
-use QL\QueryList;
+use Symfony\Component\DomCrawler\Crawler;
 use Workerman\Connection\AsyncTcpConnection;
 require './vendor/autoload.php';
 
 class Reptile
 {
     protected $url;
+    
     public function __construct($url)
     {
         $this->url = $url;
         $this->project = explode('/', $url)[4];
     }
 
-
     public function start()
     {
         $worker = new Worker("text://0.0.0.0:2345");
 
         $worker->onWorkerStart = function () {
-
-            $rules = array(
-                'version' =>
-                    array(
-                    0 => '.release-entry .release-header .css-truncate-target',
-                    1 => 'text',
-                ),
-                'assets' =>
-                    array(
-                    0 => '.release-entry details',
-                    1 => 'html',
-                ),
-            );
-
-            $rule = array(
-                'link' =>
-                    array(
-                    0 => 'li a',
-                    1 => 'href',
-                )
-            );
-
             $client = new GuzzleHttp\Client();
             $afterVersion = '';
             $stop = false;
+
             do {
                 echo "开始拉取\n";
                 $url = "{$this->url}/releases" . $afterVersion;
                 echo $url . "\n";
 
                 $res = $client->request('GET', $url);
-                $data = QueryList::html($res->getBody())->find('.pagination a')->htmls()->all();
-                $htmls = QueryList::html($res->getBody())->rules($rules)->range('')->queryData();
+                $html = $res->getBody()->getContents();
+                $crawler = new Crawler($html);
 
-                if (!empty($htmls)) {
-                    foreach ($htmls as $key => $item) {
-                        if (isset($item['version']) && isset($item['assets']) && !empty($item['assets'])) {
-                            $list = QueryList::html($item['assets'])->rules($rule)->queryData();
-                            $links = array_column($list, 'link');
-                            $item['links'] = $links;
+                if (!count($crawler->filter('.release-entry'))) {
+                    echo "啥包都没有，结束了\n";
+                    $stop = true;
+                } else {
+                    $crawler->filter('.release-entry')->each(function (Crawler $node, $i) {
+                        if (count($node->filter('.css-truncate-target'))) {
+                            $temp = [];
+                            $temp['version'] = $node->filter('.css-truncate-target')->text();
+                            $node->filter('.release-entry details a')->each(function(Crawler $assetsNode, $ii) use(&$temp){
+                                $temp['links'][] = $assetsNode->attr('href');
+                            });
+
                             $task = new AsyncTcpConnection('text://127.0.0.1:2346');
-                            $task->onConnect = function($connection) use($item)
+                            $task->onConnect = function($connection) use($temp)
                             {
-                                $connection->send(json_encode(['project' => $this->project, 'data' => $item]));
+                                $connection->send(json_encode(['project' => $this->project, 'data' => $temp]));
                             };
                             $task->connect();
-                        } else {
-                            unset($htmls[$key]);
                         }
-                    }
-                    $version = end($htmls)['version'];
-                    $afterVersion = "?after={$version}";
-                    echo "完成\n";
-                    if (count($data) == 1 && $data[0] == 'Previous') {
+                        
+                    });
+
+                    $lasterVersion = $crawler->filter('.release-entry .release-header .css-truncate-target')->last()->text();
+                    $afterVersion = "?after={$lasterVersion}";
+
+                    // 分析 分页数据
+                    $pagination = $crawler->filter('.pagination a');
+                    $firstPage = $pagination->first();
+                    if (count($pagination) == 1 && $firstPage->text() == 'Previous') {
                         echo "工作完成了\n";
                         $stop = true;
                     }
-                } else {
-                    echo "啥包都没有，结束了\n";
-                    $stop = true;
                 }
-
                 
-            } while ($stop === false);
-
+                
+            } while($stop === false);
 
         };
+
         Worker::runAll();
     }
 
