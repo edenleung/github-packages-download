@@ -8,17 +8,21 @@ require './vendor/autoload.php';
 class Task
 {
     protected $http;
+    protected $loop;
+    protected $fileSystem;
+
     public function __construct()
     {
-        $this->http = new GuzzleHttp\Client();
+        $this->http = new Client();
+        $this->loop = \React\EventLoop\Factory::create();
+        $this->fileSystem = \React\Filesystem\Filesystem::create($this->loop);
     }
 
     public function start()
     {
         $worker = new Worker("text://0.0.0.0:2346");
         $worker->count = 200;
-        $worker->onWorkerStart = function () {
-        };
+
         $worker->onMessage = function ($connection, $data) {
             $res = json_decode($data);
             $project = $res->project;
@@ -29,9 +33,6 @@ class Task
                 mkdir($dir, 0777, true);
             }
 
-            $loop = \React\EventLoop\Factory::create();
-            $filesystem = \React\Filesystem\Filesystem::create($loop);
-
             foreach ($data->links as $path) {
                 $filename = explode('/', $path);
                 $file = end($filename);
@@ -40,18 +41,21 @@ class Task
                     echo "正在下载: {$path}\n";
                     $request = new \GuzzleHttp\Psr7\Request('GET', 'https://github.com' . $path);
 
-                    $promise = $this->http->sendAsync($request)->then(function ($response) use($filesystem, $savePath, $file) {
-                        $filesystem->file($savePath)->putContents($response->getBody());
+                    $promise = $this->http->sendAsync($request)->then(function ($response) use($savePath, $file) {
+                        $this->fileSystem->file($savePath)->putContents($response->getBody());
                         echo "下载{$file}完成\n";
                     });
+
                     $promise->wait();
                     
                 } else {
                     echo "{$path} 文件已下载，终止下载\n";
                 }
+
+                $this->loop->run();
+
             }
 
-            $loop->run();
         };
         Worker::runAll();
     }
