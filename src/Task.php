@@ -29,19 +29,29 @@ class Task
                 mkdir($dir, 0777, true);
             }
 
+            $loop = \React\EventLoop\Factory::create();
+            $filesystem = \React\Filesystem\Filesystem::create($loop);
+
             foreach ($data->links as $path) {
                 $filename = explode('/', $path);
                 $file = end($filename);
                 $savePath = $dir . '/' . $file;
                 if (!file_exists($savePath)) {
                     echo "正在下载: {$path}\n";
-                    $res = $this->http->request('GET', 'https://github.com' . $path);
-                    file_put_contents($dir . '/' . $file, $res->getBody(), LOCK_EX);
-                    echo "下载{$file}完成\n";
+                    $request = new \GuzzleHttp\Psr7\Request('GET', 'https://github.com' . $path);
+
+                    $promise = $this->http->sendAsync($request)->then(function ($response) use($filesystem, $savePath, $file) {
+                        $filesystem->file($savePath)->putContents($response->getBody());
+                        echo "下载{$file}完成\n";
+                    });
+                    $promise->wait();
+                    
                 } else {
                     echo "{$path} 文件已下载，终止下载\n";
                 }
             }
+
+            $loop->run();
         };
         Worker::runAll();
     }
